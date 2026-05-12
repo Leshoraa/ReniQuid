@@ -31,7 +31,7 @@ Core Architecture
 Screenshot
 ----------
 
-![ReniQuid Showcase](https://github.com/Leshoraa/ReniQuid/blob/main/screenshot.png?raw=true)
+![ReniQuid Showcase](https://github.com/Leshoraa/ReniQuid/blob/main/Screenshot.png?raw=true)
 
 Technical Specifications
 ------------------------
