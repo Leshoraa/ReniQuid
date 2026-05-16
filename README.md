@@ -6,7 +6,7 @@ What is it?
 
 ReniQuid is a high-fidelity Zero-G fluid simulation engine designed for minimalist glassmorphism UI. Unlike traditional CSS filters, ReniQuid utilizes WebGL 2.0 to simulate pure water dynamics in a microgravity environment. 
 
-The engine focuses on "Critical Damping" to ensure fluid movement is realistic, organic, and free from artificial "bouncy" elasticities.
+The engine focuses on "Critical Damping" to ensure fluid movement is realistic.
 
 Core Architecture
 -----------------
@@ -31,7 +31,7 @@ Core Architecture
 Screenshot
 ----------
 
-![ReniQuid Showcase](https://github.com/Leshoraa/ReniQuid/blob/main/screenshot.png?raw=true)
+![ReniQuid Showcase](https://github.com/Leshoraa/ReniQuid/blob/main/Screenshot.png?raw=true)
 
 Technical Specifications
 ------------------------

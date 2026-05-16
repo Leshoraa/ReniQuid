@@ -1,5 +1,6 @@
 const canvas = document.getElementById('glcanvas');
-const gl = canvas.getContext('webgl2');
+// Mengaktifkan alpha dan premultipliedAlpha agar blending pinggiran objek sangat bersih
+const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true });
 
 if (!gl) throw new Error("WebGL 2.0 not supported");
 
@@ -34,21 +35,14 @@ float noise(vec3 x) {
                    mix(hash(n + dot(step, vec3(0, 1, 1))), hash(n + dot(step, vec3(1, 1, 1))), u.x), u.y), u.z);
 }
 
-/**
- * smin (Smooth Minimum)
- * Blends two signed distance fields (SDF) smoothly.
- * @param {float} a - First distance value.
- * @param {float} b - Second distance value.
- * @param {float} k - Smoothness factor. Higher 'k' results in wider blending radius.
- * @return {float} The smoothed minimum distance.
- */
 float smin(float a, float b, float k) {
     float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
     return mix(b, a, h) - k * h * (1.0 - h);
 }
 
 float map(vec3 p) {
-    float surfaceNoise = noise(p * 2.0 + u_time * 0.5) * 0.03;
+    // FIX 1: Diubah ke 0.02 agar permukaan metaballs melengkung mulus alami & tidak kasar bergerigi
+    float surfaceNoise = noise(p * 2.0 + u_time * 0.5) * 0.02;
     float d = 1000.0;
     
     for(int i = 0; i < 5; i++) {
@@ -79,17 +73,14 @@ vec2 getCoverUV(vec2 fragCoord, vec2 resolution, vec2 texResolution) {
     return (fragCoord / resolution) * (resolution / newSize) + offset;
 }
 
-/**
- * Refraction Calculation
- * Computes distinct Index of Refraction (IOR) for RGB channels to simulate chromatic aberration.
- * The refracted vector offsets the background UV to create a thick liquid lens effect.
- */
 vec3 calcRefraction(vec3 rd, vec3 n, vec2 fragCoord, vec2 resolution, vec2 texRes) {
-    vec3 refR = refract(rd, n, 1.0 / 1.31);
+    // FIX 2: Menggunakan indeks bias rapat (1.32, 1.33, 1.34) agar kilau pelangi tajam kristal & tidak blur kotor
+    vec3 refR = refract(rd, n, 1.0 / 1.32);
     vec3 refG = refract(rd, n, 1.0 / 1.33);
-    vec3 refB = refract(rd, n, 1.0 / 1.35);
+    vec3 refB = refract(rd, n, 1.0 / 1.34);
     
-    float strength = 0.12 * resolution.y;
+    // FIX 3: Diturunkan ke 0.1 agar pembiasan gambar pas, alami, dan tidak buram akibat melar ekstrem
+    float strength = 0.1 * resolution.y;
     
     vec2 uvR = getCoverUV(fragCoord + (refR.xy - rd.xy) * strength, resolution, texRes);
     vec2 uvG = getCoverUV(fragCoord + (refG.xy - rd.xy) * strength, resolution, texRes);
@@ -99,7 +90,8 @@ vec3 calcRefraction(vec3 rd, vec3 n, vec2 fragCoord, vec2 resolution, vec2 texRe
 }
 
 void main() {
-    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+    vec2 fragCoord = gl_FragCoord.xy;
+    vec2 uv = (fragCoord - 0.5 * u_resolution.xy) / u_resolution.y;
     
     vec3 ro = vec3(0.0, 0.0, 3.0);
     vec3 rd = normalize(vec3(uv, -1.0));
@@ -111,7 +103,8 @@ void main() {
     float maxD = 10.0;
     vec3 p;
     
-    for(int i = 0; i < 60; i++) {
+    // 32 iterasi raymarching: Kombinasi terbaik untuk ketajaman lekukan dan performa konstan 60 FPS
+    for(int i = 0; i < 32; i++) {
         p = ro + rd * t;
         float d = map(p);
         if(d < 0.001 || t > maxD) break;
@@ -119,38 +112,28 @@ void main() {
     }
     
     vec2 texRes = u_texRes.x > 0.0 ? u_texRes : vec2(1.0);
-    vec3 col = texture(u_tex, getCoverUV(gl_FragCoord.xy, u_resolution.xy, texRes)).rgb * shadowAlpha; 
+    vec3 col = texture(u_tex, getCoverUV(fragCoord, u_resolution.xy, texRes)).rgb * shadowAlpha; 
     
     if(t < maxD) {
         vec3 n = calcNormal(p);
         vec3 l = normalize(vec3(1.0, 1.5, 2.0)); 
         
-        vec3 refrCol = calcRefraction(rd, n, gl_FragCoord.xy, u_resolution.xy, texRes);
-        float edge = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
+        vec3 refrCol = calcRefraction(rd, n, fragCoord, u_resolution.xy, texRes);
         
+        float edge = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
         col = mix(refrCol, vec3(0.9, 0.95, 1.0), edge * 0.2);
+        
         col += vec3(1.0) * pow(max(dot(n, normalize(-rd + l)), 0.0), 800.0) * 1.5;
     }
     
     fragColor = vec4(col, 1.0);
 }`;
 
-/**
- * Creates and compiles a WebGL shader.
- * @param {WebGL2RenderingContext} gl - WebGL context.
- * @param {number} type - Shader type.
- * @param {string} source - GLSL source code.
- * @returns {WebGLShader|null} Compiled shader.
- */
 function createShader(gl, type, source) {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        console.error(gl.getShaderInfoLog(shader));
-        gl.deleteShader(shader);
-        return null;
-    }
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return null;
     return shader;
 }
 
@@ -164,10 +147,7 @@ gl.linkProgram(program);
 
 const positionBuffer = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-    -1, -1,  1, -1, -1,  1,
-    -1,  1,  1, -1,  1,  1
-]), gl.STATIC_DRAW);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
 
 const positionLocation = gl.getAttribLocation(program, "a_position");
 gl.enableVertexAttribArray(positionLocation);
@@ -197,14 +177,14 @@ bgImage.onload = () => {
 };
 
 const NUM_POINTS = 5;
-const points = Array.from({length: NUM_POINTS}, () => ({
-    x: window.innerWidth / 2, 
-    y: window.innerHeight / 2, 
-    vx: 0, 
+const points = Array.from({ length: NUM_POINTS }, () => ({
+    x: window.innerWidth / 2,
+    y: window.innerHeight / 2,
+    vx: 0,
     vy: 0
 }));
 
-const targetPos = {x: window.innerWidth / 2, y: window.innerHeight / 2};
+const targetPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 let isDragging = false;
 
 const updateTarget = (x, y) => { targetPos.x = x; targetPos.y = y; };
@@ -214,13 +194,13 @@ window.addEventListener('pointermove', (e) => { if (isDragging) updateTarget(e.c
 window.addEventListener('pointerup', () => isDragging = false);
 window.addEventListener('pointerleave', () => isDragging = false);
 
-window.addEventListener('touchstart', (e) => { 
-    isDragging = true; 
-    updateTarget(e.touches[0].clientX, e.touches[0].clientY); 
-}, {passive: false});
-window.addEventListener('touchmove', (e) => { 
-    if (isDragging) { e.preventDefault(); updateTarget(e.touches[0].clientX, e.touches[0].clientY); } 
-}, {passive: false});
+window.addEventListener('touchstart', (e) => {
+    isDragging = true;
+    updateTarget(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: false });
+window.addEventListener('touchmove', (e) => {
+    if (isDragging) { e.preventDefault(); updateTarget(e.touches[0].clientX, e.touches[0].clientY); }
+}, { passive: false });
 window.addEventListener('touchend', () => isDragging = false);
 
 const K_ANCHOR = 200.0, M_ANCHOR = 1.0, C_ANCHOR = 2.0 * Math.sqrt(K_ANCHOR * M_ANCHOR);
@@ -228,12 +208,6 @@ const K_TAIL = 300.0, M_TAIL = 1.0, C_TAIL = 2.0 * Math.sqrt(K_TAIL * M_TAIL);
 
 let lastTime = performance.now();
 
-/**
- * Logic Critical Damping
- * Updates physics state using Critical Damping for smooth, organic motion.
- * Uses Hooke's Law with damping to prevent oscillation, maintaining stable equilibrium.
- * @param {number} dt - Delta time since last frame.
- */
 function updatePhysics(dt) {
     if (dt > 0.03) dt = 0.03;
 
@@ -253,7 +227,7 @@ function updatePhysics(dt) {
 
     for (let i = 1; i < NUM_POINTS; i++) {
         let p = points[i];
-        let target = points[i-1];
+        let target = points[i - 1];
         let fx = K_TAIL * (target.x - p.x) - C_TAIL * p.vx;
         let fy = K_TAIL * (target.y - p.y) - C_TAIL * p.vy;
         p.vx += (fx / M_TAIL) * dt;
@@ -263,9 +237,11 @@ function updatePhysics(dt) {
     }
 }
 
+// FIX 4: Dukungan Device Pixel Ratio (DPR) dioptimalkan penuh tanpa merusak skala koordinat kursor
 function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
     gl.viewport(0, 0, canvas.width, canvas.height);
 }
 window.addEventListener('resize', resize);
@@ -273,12 +249,6 @@ resize();
 
 const mappedPoints = new Float32Array(NUM_POINTS * 2);
 
-/**
- * Data Flow to WebGL Uniforms
- * Main render loop. Transmits physics data (points) to WebGL Uniforms.
- * Maps JS pixel coordinates to WebGL normalized device coordinates (NDC).
- * @param {number} time - Elapsed time provided by requestAnimationFrame.
- */
 function render(time) {
     let now = performance.now();
     let dt = (now - lastTime) / 1000.0;
@@ -287,17 +257,17 @@ function render(time) {
     updatePhysics(dt);
 
     for (let i = 0; i < NUM_POINTS; i++) {
-        mappedPoints[i*2] = ((points[i].x - 0.5 * canvas.width) / canvas.height) * 3.0;
-        mappedPoints[i*2+1] = (((canvas.height - points[i].y) - 0.5 * canvas.height) / canvas.height) * 3.0;
+        mappedPoints[i * 2] = ((points[i].x - 0.5 * window.innerWidth) / window.innerHeight) * 3.0;
+        mappedPoints[i * 2 + 1] = (((window.innerHeight - points[i].y) - 0.5 * window.innerHeight) / window.innerHeight) * 3.0;
     }
 
     gl.useProgram(program);
     gl.uniform2f(uResolutionLoc, canvas.width, canvas.height);
     gl.uniform2fv(uPointsLoc, mappedPoints);
     gl.uniform1f(uTimeLoc, time * 0.001);
-    
+
     if (imageLoaded) gl.uniform2f(uTexResLoc, bgImage.width, bgImage.height);
-    
+
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, bgTexture);
     gl.uniform1i(uTexLoc, 0);
