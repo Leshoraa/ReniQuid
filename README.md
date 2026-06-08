@@ -48,4 +48,7 @@ Demonstration
 
 https://reniquid.vercel.app/
 
+<img width="1920" height="1200" alt="image" src="https://github.com/user-attachments/assets/ee498e28-469b-44a1-8eaa-beaa10a0eace" />
+
+
 *Code is written to be executed by machines, understood by humans. Don't reverse it.*
